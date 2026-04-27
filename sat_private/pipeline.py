@@ -16,7 +16,6 @@ from .core import (
 )
 
 # Canonical llm_call_fn signature: (system: str, user: str) -> str
-# All examples, docs, and tests must match this exactly.
 LLMCallable = Callable[[str, str], str]
 
 
@@ -33,7 +32,7 @@ def run_pipeline(
     Parameters
     ----------
     expr_str            : Boolean formula string (symbols = real_var_meanings keys)
-    real_var_meanings   : {symbol: real_name} — STAYS CALLER-SIDE, never sent to LLM
+    real_var_meanings   : {symbol: real_name} — stays caller-side, never sent to LLM
     llm_call_fn         : Callable(system: str, user: str) -> str
                           Pass None for a dry run that skips LLM calls.
     decoy_count         : Number of noise tokens to inject (default 0)
@@ -43,17 +42,17 @@ def run_pipeline(
     {
         sat_result      : "SAT" | "UNSAT" | None (dry run)
         verified        : bool | None
-        parse_error     : bool  — True if LLM output could not be cleanly parsed
-        decoded         : {real_name: bool}   — empty if UNSAT or parse_error
-        raw_response    : str   — raw LLM text (SAT call)
-        verify_response : str   — raw LLM text (verify call)
+        parse_error     : bool
+        decoded         : {real_name: bool}
+        raw_response    : str
+        verify_response : str
         prompt_ctx      : dict  — includes token_map / decode_map (CALLER SECRET)
     }
     """
     var_names = list(real_var_meanings.keys())
     prompt_ctx = generate_sat_prompt(expr_str, var_names, decoy_count=decoy_count)
 
-    if llm_call_fn is None:
+    if llm_call_fn is None:  # pragma: no cover
         print("[DRY RUN] Skipping LLM calls. Prompt preview:")
         print("  System:", prompt_ctx["system"][:80].replace("\n", " "), "...")
         print("  User  :", prompt_ctx["user"][:120].replace("\n", " "), "...")
@@ -69,7 +68,6 @@ def run_pipeline(
 
     raw_response = llm_call_fn(prompt_ctx["system"], prompt_ctx["user"])
 
-    # ── Strict parse: require RESULT: SAT or RESULT: UNSAT ──────────────────
     upper = raw_response.upper()
     if "RESULT: UNSAT" in upper:
         return {
@@ -94,14 +92,12 @@ def run_pipeline(
 
     sat_result = "SAT"
 
-    # ── Build token assignment from raw response ─────────────────────────────
     token_assignment: dict[str, bool] = {}
     for line in raw_response.splitlines():
         for token in prompt_ctx["decode_map"]:
             if token in line:
                 token_assignment[token] = "TRUE" in line.upper()
 
-    # ── Verification call ────────────────────────────────────────────────────
     verify_response = ""
     verified = None
     if token_assignment:
@@ -109,7 +105,6 @@ def run_pipeline(
         verify_response = llm_call_fn(vp["system"], vp["user"])
         verified = "PASS" in verify_response.upper()
 
-    # ── Decode via single canonical path (core.decode_assignment) ────────────
     sym_decoded = decode_assignment(raw_response, prompt_ctx["decode_map"])
     real_decoded = {
         real_var_meanings[sym]: val

@@ -5,15 +5,16 @@ Pure functions: encode, prompt generation, DIMACS export, decode.
 No I/O, no LLM calls — fully testable in isolation.
 """
 from __future__ import annotations
-import re, secrets
+import re
+import secrets
 from typing import Any
 from sympy.logic.boolalg import to_cnf, And, Or, Not, BooleanFalse, BooleanTrue
 from sympy import symbols as sym_symbols
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 # SECTION 1 — Variable encoding
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 
 def encode_variables(var_names: list[str]) -> tuple[dict[str, str], dict[str, str]]:
     """
@@ -45,13 +46,14 @@ def encode_variables(var_names: list[str]) -> tuple[dict[str, str], dict[str, st
     return token_map, decode_map
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 # SECTION 2 — CNF conversion helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 
 # Allowlist: only permit these characters in formula strings.
 # Prevents injection via crafted formula input (F3 mitigation).
-_FORMULA_ALLOWLIST = re.compile(r'^[A-Za-z0-9 |&~()>\-]+$')
+_FORMULA_ALLOWLIST = re.compile(r'^[A-Za-z0-9 |&~()>
+	-]+$')
 
 
 def _validate_formula(expr_str: str) -> None:
@@ -59,7 +61,8 @@ def _validate_formula(expr_str: str) -> None:
     if not _FORMULA_ALLOWLIST.match(expr_str):
         raise ValueError(
             f"Formula contains disallowed characters. "
-            f"Only A-Z, a-z, 0-9, spaces, and |&~()>- are permitted. "
+            f"Only A-Z, a-z, 0-9, spaces, and |&~()>
+	- are permitted. "
             f"Got: {expr_str!r}"
         )
 
@@ -72,7 +75,7 @@ def _parse_expr(expr_str: str, var_names: list[str]):
     safe = expr_str
     for name in sorted(var_names, key=len, reverse=True):
         safe = re.sub(rf"\b{re.escape(name)}\b", f"sym_map['{name}']", safe)
-    expr = eval(safe, {"sym_map": sym_map, "__builtins__": {}})  # nosec B307
+    expr = eval(safe, {"sym_map": sym_map, "__builtins__": {{}}})  # nosec B307
     return to_cnf(expr, simplify=True), sym_map
 
 
@@ -94,11 +97,11 @@ def _clauses_from_cnf(cnf_expr) -> list[list[str]]:
     return clauses
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 # SECTION 3 — Prompt generation
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 
-_SOLVER_SYSTEM = """\
+_SOLVER_SYSTEM = """
 You are a pure structural SAT solver. You receive a SAT problem encoded with
 opaque hex tokens — the tokens have no semantic meaning. Your only job is to
 find a satisfying assignment or prove UNSAT.
@@ -119,7 +122,7 @@ RESULT: UNSAT
 
 Do not explain. Do not add commentary. Tokens are case-sensitive."""
 
-_VERIFIER_SYSTEM = """\
+_VERIFIER_SYSTEM = """
 You are a SAT assignment verifier. Given a set of clauses and an assignment,
 check every clause. Return EXACTLY one of:
 
@@ -232,9 +235,9 @@ def generate_verify_prompt(
     return {"system": _VERIFIER_SYSTEM, "user": user_msg}
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 # SECTION 4 — DIMACS export
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...] 
 
 def generate_dimacs(
     prompt_ctx: dict[str, Any],
@@ -243,7 +246,7 @@ def generate_dimacs(
     Export the formula as standard DIMACS CNF (compatible with MiniSAT/Glucose).
 
     The integer->symbol mapping is returned separately as caller secret state —
-    it must NOT be written into the .cnf file.
+it must NOT be written into the .cnf file.
 
     Parameters
     ----------
@@ -280,9 +283,9 @@ def generate_dimacs(
     return "\n".join(lines), caller_map
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...]
 # SECTION 5 — Decode
-# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────[...] 
 
 def decode_assignment(
     llm_response: str,

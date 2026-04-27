@@ -12,7 +12,6 @@ The formula encodes:
 """
 from sat_private import run_pipeline
 
-# Real variable meanings — stay caller-side, never sent to the LLM
 REAL_VARS = {
     "A": "user_is_admin",
     "B": "has_mfa",
@@ -37,7 +36,7 @@ def mock_llm(system: str, user: str) -> str:
 
 if __name__ == "__main__":
     result = run_pipeline(
-        formula_str=FORMULA,
+        expr_str=FORMULA,
         real_var_meanings=REAL_VARS,
         llm_call_fn=mock_llm,
     )

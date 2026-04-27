@@ -32,7 +32,7 @@ def mock_llm(system: str, user: str) -> str:
 
 if __name__ == "__main__":
     result = run_pipeline(
-        formula_str=FORMULA,
+        expr_str=FORMULA,
         real_var_meanings=REAL_VARS,
         llm_call_fn=mock_llm,
     )

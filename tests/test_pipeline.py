@@ -2,8 +2,8 @@
 tests/test_pipeline.py
 Integration tests for sat_private/pipeline.py — uses mock LLM, no real API calls.
 """
-from sat_private import generate_dimacs, generate_sat_prompt, run_pipeline
 from tests.conftest import EXPR_MEDIUM, REAL_VARS, VAR_NAMES
+from sat_private import generate_dimacs, generate_sat_prompt, run_pipeline
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,14 @@ import secrets
 from typing import Any
 
 from sympy import symbols as sym_symbols
-from sympy.logic.boolalg import And, BooleanFalse, BooleanTrue, Not, Or, to_cnf
+from sympy.logic.boolalg import (
+    And,
+    BooleanFalse,
+    BooleanTrue,
+    Not,
+    Or,
+    to_cnf,
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

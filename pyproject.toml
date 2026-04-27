@@ -1,0 +1,28 @@
+[project]
+name = "sat-private"
+version = "0.1.0"
+description = "Private SAT pipeline: binary-encoded CNF + LLM solver + secret caller state"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["sympy>=1.12"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

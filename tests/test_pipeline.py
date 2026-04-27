@@ -2,13 +2,9 @@
 tests/test_pipeline.py
 Integration tests for sat_private/pipeline.py — uses mock LLM, no real API calls.
 """
-from tests.conftest import EXPR_MEDIUM, REAL_VARS, VAR_NAMES
 from sat_private import generate_dimacs, generate_sat_prompt, run_pipeline
+from tests.conftest import EXPR_MEDIUM, REAL_VARS, VAR_NAMES
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _make_sat_response(ctx, values: dict) -> str:
     """Build a well-formed RESULT: SAT response for the given symbol->bool map."""
@@ -36,10 +32,6 @@ def _make_mock_llm(ctx, sym_values: dict, verify_pass: bool = True):
 
     return mock
 
-
-# ---------------------------------------------------------------------------
-# TestPipelineSat — happy path
-# ---------------------------------------------------------------------------
 
 class TestPipelineSat:
     def test_sat_result_key(self):
@@ -79,10 +71,6 @@ class TestPipelineSat:
             assert key in result, f"Missing key: {key}"
 
 
-# ---------------------------------------------------------------------------
-# TestPipelineUnsat
-# ---------------------------------------------------------------------------
-
 class TestPipelineUnsat:
     def test_unsat_result(self):
         result = run_pipeline(
@@ -113,10 +101,6 @@ class TestPipelineUnsat:
         assert result["parse_error"] is False
 
 
-# ---------------------------------------------------------------------------
-# TestPipelineParseError — F6 regression
-# ---------------------------------------------------------------------------
-
 class TestPipelineParseError:
     def test_garbled_sets_parse_error(self):
         result = run_pipeline(
@@ -134,17 +118,12 @@ class TestPipelineParseError:
         assert result["decoded"] == {}
 
     def test_partial_result_line_only(self):
-        """Response has RESULT but no SAT/UNSAT — should be parse_error."""
         result = run_pipeline(
             "A | B", {"A": "x", "B": "y"},
             llm_call_fn=lambda s, u: "RESULT: MAYBE",
         )
         assert result["parse_error"] is True
 
-
-# ---------------------------------------------------------------------------
-# TestPipelineDryRun
-# ---------------------------------------------------------------------------
 
 class TestPipelineDryRun:
     def test_dry_run_no_llm(self, capsys):
@@ -161,10 +140,6 @@ class TestPipelineDryRun:
         assert "decode_map" in result["prompt_ctx"]
 
 
-# ---------------------------------------------------------------------------
-# TestPipelineDecoyCount
-# ---------------------------------------------------------------------------
-
 class TestPipelineDecoyCount:
     def test_decoy_count_in_header(self):
         ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES, decoy_count=3)
@@ -172,28 +147,20 @@ class TestPipelineDecoyCount:
         assert str(len(VAR_NAMES) + 3) in first_line
 
 
-# ---------------------------------------------------------------------------
-# TestFileExport — F4 regression (export params removed)
-# ---------------------------------------------------------------------------
-
 class TestFileExport:
     def test_dimacs_via_generate_dimacs(self):
-        """DIMACS accessible via generate_dimacs(prompt_ctx), not run_pipeline param."""
         ctx = generate_sat_prompt(EXPR_MEDIUM, list(REAL_VARS.keys()))
         dimacs, _ = generate_dimacs(ctx)
         assert dimacs.startswith("c DIMACS")
         assert "p cnf" in dimacs
 
     def test_secret_state_in_prompt_ctx(self):
-        """Secret state lives in result['prompt_ctx'], never written to disk."""
         ctx = generate_sat_prompt(EXPR_MEDIUM, list(REAL_VARS.keys()))
         assert "token_map" in ctx
         assert "decode_map" in ctx
 
     def test_run_pipeline_has_no_export_params(self):
-        """F4 regression: run_pipeline must not accept export_secret_path."""
         import inspect
-
         sig = inspect.signature(run_pipeline)
         assert "export_secret_path" not in sig.parameters
         assert "export_dimacs_path" not in sig.parameters

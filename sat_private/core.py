@@ -49,14 +49,30 @@ def encode_variables(var_names: list[str]) -> tuple[dict[str, str], dict[str, st
 # SECTION 2 — CNF conversion helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Allowlist: only permit these characters in formula strings.
+# Prevents injection via crafted formula input (F3 mitigation).
+_FORMULA_ALLOWLIST = re.compile(r'^[A-Za-z0-9 |&~()>\-]+$')
+
+
+def _validate_formula(expr_str: str) -> None:
+    """Raise ValueError if expr_str contains characters outside the allowlist."""
+    if not _FORMULA_ALLOWLIST.match(expr_str):
+        raise ValueError(
+            f"Formula contains disallowed characters. "
+            f"Only A-Z, a-z, 0-9, spaces, and |&~()>- are permitted. "
+            f"Got: {expr_str!r}"
+        )
+
+
 def _parse_expr(expr_str: str, var_names: list[str]):
     """Parse a boolean expression string into a SymPy CNF object."""
+    _validate_formula(expr_str)  # F3: allowlist gate before eval
     syms = sym_symbols(" ".join(var_names))
     sym_map = dict(zip(var_names, syms if hasattr(syms, "__iter__") else [syms]))
     safe = expr_str
     for name in sorted(var_names, key=len, reverse=True):
         safe = re.sub(rf"\b{re.escape(name)}\b", f"sym_map['{name}']", safe)
-    expr = eval(safe, {"sym_map": sym_map, "__builtins__": {}})
+    expr = eval(safe, {"sym_map": sym_map, "__builtins__": {}})  # nosec B307
     return to_cnf(expr, simplify=True), sym_map
 
 
@@ -237,6 +253,11 @@ def generate_dimacs(
     -------
     dimacs_str : str  — DIMACS CNF text; safe to write to formula.cnf
     caller_map : dict — {int_str: symbol}  — CALLER SECRET, never in .cnf
+
+    Security note
+    -------------
+    Write the returned dimacs_str to a temp file only. Delete immediately after
+    use. Never commit formula.cnf — it is covered by .gitignore.
     """
     var_names = list(prompt_ctx["token_map"].keys())
     int_map   = {name: i + 1 for i, name in enumerate(var_names)}
@@ -269,6 +290,9 @@ def decode_assignment(
 ) -> dict[str, bool]:
     """
     Parse LLM SAT response and decode hex tokens back to symbolic names.
+
+    This is the single canonical decode path. pipeline.py routes through
+    here — never re-implements token parsing inline.
 
     Parameters
     ----------

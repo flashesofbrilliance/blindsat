@@ -1,196 +1,110 @@
-# Failure Modes — sat_private
+# Failure Modes — sat_private POC
 
-> How we found them, what they do, and how to handle them.
-
-This document catalogs every known failure mode, its root cause, detection method,
-and recommended mitigation. It is a living document: add entries whenever a new
-failure mode is discovered in testing, production, or red-team review.
+> This document is a living design receipt. It captures every failure mode
+> identified during the ARCS gauntlet review of the repo, explains why each
+> one matters, records how it was found, and links to the remediation.
 
 ---
 
-## How We Found These
+## How These Were Identified
 
-All failure modes below were identified during an **ARCS gauntlet review** of the
-initial POC codebase on 2026-04-27. The gauntlet runs five lenses simultaneously:
+The review inspected the live repository state (commit `c5c3ec`) by tracing
+the main execution path from `run_pipeline` into prompt generation, decode,
+verification, and export behaviour. Three priority criteria drove ranking:
 
-| Lens | What it looks for |
+1. **First-run breakage** — does it silently fail for a new user?
+2. **Privacy invariant violation** — does it leak real variable names?
+3. **Silent false positive** — does it return a misleading result with no signal?
+
+Findings were cross-checked against the public docs, examples, and `GETTING_STARTED.md`
+to identify documentation / implementation drift.
+
+---
+
+## Failure Modes
+
+### F1 — `llm_call_fn` Signature Mismatch ✅ Fixed
+
+| | |
 |---|---|
-| **L1 Kintsugi Scan** | Fractures — places where the seam between components is visibly weak |
-| **L2 Diamond (NULL/OM/UNDEFINED)** | What’s provably absent, assumed, or unknown |
-| **L3 BAR (Before/After/Risk)** | What breaks if we don’t fix it, and how badly |
-| **L4 KKL (Key Leverage)** | Which three moves fix 80% of surface area |
-| **L5 True North** | Single most important next action |
-
-The gauntlet operates on the live codebase — `core.py`, `pipeline.py`, and the
-test suite — not on a spec. Findings are graded by risk and ordered by leverage.
+| **What** | `pipeline.py` called `llm_call_fn(system, user)` (2 args). Some examples used `mock_llm(prompt: str)` (1 arg). |
+| **Why it matters** | Every new user following the Getting Started guide would hit `TypeError: mock_llm() takes 1 positional argument but 2 were given` on first real run. |
+| **How found** | Compared the `run_pipeline` call site with the function signature in each example. |
+| **Fix** | Standardised to `(system: str, user: str) -> str` everywhere. Added `LLMCallable` type alias in `pipeline.py`. All examples updated. |
 
 ---
 
-## FM-01 · `llm_call_fn` Signature Mismatch *(Fixed in v0.1.1)*
+### F2 — Dual Decode Paths ✅ Fixed
 
-**Lens that caught it:** L1 Kintsugi — seam between `pipeline.py` and `examples/`
-
-**What happened:**
-`pipeline.py` called `llm_call_fn(system, user)` (two args) while every example
-and `GETTING_STARTED.md` defined `mock_llm(prompt: str)` (one arg). A user
-following the docs exactly would receive `TypeError: mock_llm() takes 1 positional
-argument but 2 were given` on their first real LLM call.
-
-**Why it happened:**
-The pipeline was written with the two-arg form (matching OpenAI’s chat interface)
-before the examples were written. The examples were written for simplicity without
-checking the pipeline’s call site.
-
-**Detection:** `TypeError` at runtime on first live LLM call. Would not appear in
-unit tests because mocks used lambdas with `*args`.
-
-**Fix:** Standardised `llm_call_fn` to `(system: str, user: str) -> str` everywhere.
-Updated all examples, `GETTING_STARTED.md`, and the type annotation in `run_pipeline`.
-
-**Prevention going forward:** Any function accepted as a callback must have its
-signature asserted in at least one integration test.
+| | |
+|---|---|
+| **What** | `pipeline.py` re-implemented token-to-symbol parsing inline (lines 57–59) instead of calling `core.decode_assignment`. |
+| **Why it matters** | Two independent implementations of the same logic drift over time. A bug fix in one path would not propagate to the other. |
+| **How found** | Read `pipeline.py` top-to-bottom; found token scanning loop that duplicated `decode_assignment` logic. |
+| **Fix** | Removed inline loop. `pipeline.py` now routes all decoding through `core.decode_assignment` — single canonical path. |
 
 ---
 
-## FM-02 · Dual Decode Paths *(Fixed in v0.1.1)*
+### F3 — `eval()` Without Input Allowlist ✅ Mitigated
 
-**Lens that caught it:** L1 Kintsugi — structural duplication
-
-**What happened:**
-`pipeline.py` contained an inline re-implementation of the token-parsing logic
-that also exists in `core.decode_assignment`. Two code paths doing the same thing
-can silently drift apart as either evolves.
-
-**Why it happened:**
-`pipeline.py` was written before the `decode_assignment` function in `core.py`
-was fully stabilised. The inline version was never removed.
-
-**Detection:** Code review / structural audit. Would only surface as a bug after
-one path was modified without updating the other.
-
-**Fix:** `pipeline.py` now calls `core.decode_assignment` exclusively.
-
-**Prevention:** Single decode path enforced by design. Any change to decode logic
-has exactly one place to land.
+| | |
+|---|---|
+| **What** | `_parse_expr` in `core.py` called `eval(safe, {"__builtins__": {}})`. Suppressing `__builtins__` is not a full Python sandbox. A crafted formula string could escape. |
+| **Why it matters** | `sat_private` is a security-oriented POC. A formula injection surface is contradictory to the privacy claims. |
+| **How found** | Reviewed `core.py` Section 2. The `__builtins__: {}` pattern is well-known to be bypassable in CPython. |
+| **Fix** | Added `_validate_formula()` with a character allowlist (`A-Za-z0-9 |&~()>-`) before `eval`. Any formula containing characters outside the set raises `ValueError`. `eval` is retained with `# nosec B307` to suppress bandit noise — the allowlist is the real gate. |
+| **Residual risk** | `eval` over allowlisted input on controlled symbols is low risk but not zero. Full mitigation in a later version would replace `eval` with a SymPy parser-only path. |
 
 ---
 
-## FM-03 · `eval()` Partial Sandbox *(Open — tracked as N-03a)*
+### F4 — Secret State Export to Disk ✅ Fixed
 
-**Lens that caught it:** L1 Kintsugi — security surface
-
-**What happened:**
-`core._parse_expr` uses `eval(safe, {"sym_map": sym_map, "__builtins__": {}})`.
-Suppressing `__builtins__` in Python does not constitute a real security boundary:
-a crafted input can still access `object.__subclasses__()` and escape the sandbox.
-
-**Why it happened:**
-The `eval` approach is the simplest way to reuse Python’s operator syntax for
-boolean expressions. The sandbox was added as a precaution but is insufficient.
-
-**Risk level:** Low in the current POC context (formula strings are caller-supplied,
-not user-supplied). Becomes high if `expr_str` ever accepts untrusted external input.
-
-**Mitigations (current):**
-- `expr_str` is caller-controlled; callers are trusted in v0.1.
-- Input is re-written to reference only `sym_map` keys before eval.
-
-**Recommended fix (N-03a):** Replace `eval` with a proper parser:
-- Option A: Use SymPy’s `parse_expr` with `local_dict` and `transformations`.
-- Option B: Write a small recursive-descent parser for the four operators.
-
-**Do not accept untrusted `expr_str` input until this is resolved.**
+| | |
+|---|---|
+| **What** | `pipeline.py` accepted `export_secret_path` and serialised the full decode map and real variable meanings to JSON on disk. |
+| **Why it matters** | The core privacy guarantee of `sat_private` is that real variable names never leave the caller's process. Writing them to a file breaks this in any shared or logged environment. |
+| **How found** | Read `run_pipeline` signature and body. `export_secret_path` wrote `{"int_to_symbol": ..., "symbol_to_real": real_var_meanings}` — the complete inverse of the privacy encoding. |
+| **Fix** | `export_secret_path` and `export_dimacs_path` parameters removed from `run_pipeline` entirely. The security note in `generate_dimacs` docstring now explains how to use DIMACS safely if needed. |
 
 ---
 
-## FM-04 · Secret Export to Disk *(Fixed in v0.1.1)*
+### F5 — Unit Clause Edge Case ⚠️ Documented, Not Yet Tested
 
-**Lens that caught it:** L1 Kintsugi — privacy guarantee violation
-
-**What happened:**
-`run_pipeline` accepted an `export_secret_path` parameter that wrote the full
-decode map *and* real variable meanings to a JSON file on disk. This silently
-violates the core privacy guarantee of the pipeline.
-
-**Why it happened:**
-Added as a debugging convenience during early development. The warning comment
-existed but the parameter remained opt-in-unsafe: callers could trigger it
-accidentally.
-
-**Fix:** Parameter removed entirely. `export_dimacs_path` is retained because
-DIMACS output contains no variable names and is safe to export.
-
-**If you need cross-process secret persistence:**
-Encrypt the `prompt_ctx["decode_map"]` and `real_var_meanings` before any storage
-operation. Never write them in plaintext.
+| | |
+|---|---|
+| **What** | A formula with a single-literal clause (e.g. `"A"` or `"~A"`) exercises a different branch in `_clauses_from_cnf`. The logic appears correct but has no dedicated test. |
+| **Why it matters** | Unit clauses are common in real compliance rules (e.g. `data_minimisation must always hold`). Untested edge cases become silent bugs. |
+| **How found** | Traced `_clauses_from_cnf` branch logic; `lits = clause.args if isinstance(clause, Or) else [clause]` handles unit clauses, but the wrapper `And(cnf_expr).args` path for single-clause formulae was not verified by any test. |
+| **Fix** | To be addressed in the next test-writing session. Target: add `test_unit_clause` and `test_always_true_literal` cases in `tests/test_edge_cases.py`. |
 
 ---
 
-## FM-05 · Silent False-Positive SAT on Parse Failure *(Fixed in v0.1.1)*
+### F6 — Silent False-Positive SAT on Parse Failure ✅ Fixed
 
-**Lens that caught it:** L2 Diamond (UNDEFINED) — unhandled LLM output states
-
-**What happened:**
-When an LLM returned a response containing neither `SAT` nor `UNSAT` (e.g. an
-apology, a refusal, or a malformed output), the pipeline set `sat_result = "SAT"`
-because the `UNSAT` string was not present. The caller received
-`{"sat_result": "SAT", "decoded": {}}` with no indication that anything was wrong.
-
-**Why it happened:**
-The original sat/unsat detection was a single condition:
-```python
-sat_result = "UNSAT" if "UNSAT" in upper else "SAT"
-```
-This is a closed-world assumption that breaks on any response outside the expected
-format.
-
-**Fix:** Explicit three-way parse:
-```python
-is_sat   = "SAT" in upper and "UNSAT" not in upper
-is_unsat = "UNSAT" in upper
-if not is_sat and not is_unsat:
-    return {..., "sat_result": None, "parse_error": True}
-```
-
-Callers should check `result["parse_error"]` before trusting `sat_result`.
-
-**Prevention:** Any new LLM response parser must define all three states:
-expected-positive, expected-negative, and unparseable. Tests EC-08 and EC-09
-cover this.
+| | |
+|---|---|
+| **What** | If the LLM returned malformed output (no `RESULT:` prefix, extra prose), `sat_result` was set to `"SAT"` because `"UNSAT"` was simply absent from the string. The caller received `{"sat_result": "SAT", "decoded": {}}` with no indication that parsing failed. |
+| **Why it matters** | A downstream system treating `sat_result == "SAT"` as a real result could grant access or approve a compliance check based on a hallucination or truncated LLM response. |
+| **How found** | Traced the SAT/UNSAT detection in `pipeline.py`: `sat_result = "UNSAT" if "UNSAT" in ... else "SAT"` — absence of UNSAT was treated as presence of SAT. |
+| **Fix** | Replaced with strict parse logic: require `RESULT: SAT` or `RESULT: UNSAT` in the response. All other output sets `parse_error: True` and `sat_result: None`. Callers must check `parse_error` before acting on `sat_result`. |
 
 ---
 
-## FM-06 · Single-Literal Clause Handling *(Monitored — EC-15 covers)*
+## Residual Risks After v0.1.0 Fixes
 
-**Lens that caught it:** L2 Diamond (OM) — assumed but unconfirmed
-
-**What happened:**
-Formulas that reduce to a single unit clause (e.g. `"A"`, `"A & B"` after
-simplification) go through a SymPy `And(cnf_expr)` wrapper. This is believed
-correct but has edge cases depending on SymPy’s internal representation of
-single-literal `And` nodes.
-
-**Risk level:** Low. EC-02 and EC-15 cover the known cases. No failures observed.
-
-**Status:** Monitored. If SymPy changes its internal representation in a future
-release, `_clauses_from_cnf` may need updating.
+| ID | Risk | Severity | Planned fix |
+|---|---|---|---|
+| F3 residual | `eval()` on allowlisted input | Low | Replace with SymPy parser-only path in v0.2 |
+| F5 unit clause | No test coverage for unit/always-true clauses | Low | `test_edge_cases.py` next session |
+| OM-1 | Mock LLM in tests may not represent real LLM failure modes | Medium | Add adversarial mock (garbled output, partial response, UNSAT lie) |
+| OM-2 | LLM accuracy on >6-variable formulas is unvalidated | Unknown | Benchmark suite planned in `docs/NEXT_STEPS.md` N-17 |
 
 ---
 
-## Adding New Entries
+## How to Use This Document
 
-When a new failure mode is found, add an entry with:
+- **Before adding a new feature:** check whether it interacts with any residual risk above.
+- **Before a release:** all `✅ Fixed` items must have corresponding tests passing in CI.
+- **When a new failure mode is found:** add it here with the same table structure before writing any fix.
 
-```markdown
-## FM-NN · Short Title *(Status)*
-
-**Lens that caught it:**
-**What happened:**
-**Why it happened:**
-**Risk level:**
-**Fix / Mitigation:**
-**Prevention:**
-```
-
-Tag the entry with the ARCS lens that caught it. This builds a corpus over time
-that improves the sensitivity of future gauntlet runs.
+This document is part of the Definition of Done. See [`docs/DEFINITION_OF_DONE.md`](DEFINITION_OF_DONE.md).

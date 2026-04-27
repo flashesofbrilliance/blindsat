@@ -1,30 +1,39 @@
 """
 UC-3 · Regulatory Compliance Rule Satisfiability
---------------------------------------------------
-Checks whether overlapping GDPR / SOC2 / HIPAA-style clauses are mutually
-satisfiable, without leaking legal language to the LLM.
-"""
+-------------------------------------------------
+Demonstrates how sat_private checks whether a compliance rule set
+can be simultaneously satisfied — without exposing regulation names
+or internal policy identifiers to the LLM.
 
+The formula encodes:
+  - gdpr_consent OR legitimate_interest must hold
+  - data_minimisation must hold
+  - if cross_border_transfer then standard_contractual_clauses
+  - gdpr_consent and legitimate_interest cannot both hold
+"""
 from sat_private import run_pipeline
 
 REAL_VARS = {
-    'A': 'gdpr_consent_obtained',
-    'B': 'data_minimisation_applied',
-    'C': 'retention_limit_enforced',
-    'D': 'cross_border_transfer_approved',
-    'E': 'dpa_signed',
-    'F': 'breach_notification_ready',
+    'A': 'gdpr_consent',
+    'B': 'legitimate_interest',
+    'C': 'data_minimisation',
+    'D': 'cross_border_transfer',
+    'E': 'standard_contractual_clauses',
 }
 
-FORMULA = '(A | ~D) & (B & C) & (~D | E) & F & (A | B)'
+FORMULA = '(A | B) & C & (~D | E) & (~A | ~B)'
 
 
 def mock_llm(system: str, user: str) -> str:
+    """
+    Placeholder — replace with your OpenAI/Anthropic call.
+    Signature: (system: str, user: str) -> str
+    """
     vars_block = [l for l in user.splitlines() if len(l) == 8 and l.isupper()]
-    lines = ["RESULT: SAT", "ASSIGNMENT:"]
+    lines = ['RESULT: SAT', 'ASSIGNMENT:']
     for i, tok in enumerate(vars_block):
         lines.append(f"{tok}: {'TRUE' if i % 2 == 0 else 'FALSE'}")
-    return "\n".join(lines)
+    return '\n'.join(lines)
 
 
 if __name__ == '__main__':

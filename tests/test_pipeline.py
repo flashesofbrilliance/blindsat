@@ -2,12 +2,7 @@
 tests/test_pipeline.py
 Integration tests for sat_private/pipeline.py — uses mock LLM, no real API calls.
 """
-import pytest
-from sat_private import (
-    generate_sat_prompt,
-    generate_dimacs,
-    run_pipeline,
-)
+from sat_private import generate_dimacs, generate_sat_prompt, run_pipeline
 from tests.conftest import EXPR_MEDIUM, REAL_VARS, VAR_NAMES
 
 
@@ -25,9 +20,12 @@ def _make_sat_response(ctx, values: dict) -> str:
 
 
 def _make_mock_llm(ctx, sym_values: dict, verify_pass: bool = True):
-    """Return a 2-arg mock LLM that answers SAT then VERIFICATION: PASS/FAIL."""
-    sat_response    = _make_sat_response(ctx, sym_values)
-    verify_response = "VERIFICATION: PASS" if verify_pass else "VERIFICATION: FAIL\nUNSATISFIED_CLAUSES: 1"
+    """Return a 2-arg mock LLM: answers SAT then VERIFICATION: PASS/FAIL."""
+    sat_response = _make_sat_response(ctx, sym_values)
+    verify_response = (
+        "VERIFICATION: PASS" if verify_pass
+        else "VERIFICATION: FAIL\nUNSATISFIED_CLAUSES: 1"
+    )
     responses = [sat_response, verify_response]
     idx = [0]
 
@@ -52,7 +50,9 @@ class TestPipelineSat:
 
     def test_verified_true_on_pass(self):
         ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
-        llm = _make_mock_llm(ctx, {"A": True, "B": False, "C": True, "D": False}, verify_pass=True)
+        llm = _make_mock_llm(
+            ctx, {"A": True, "B": False, "C": True, "D": False}, verify_pass=True
+        )
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert result["verified"] is True
 
@@ -72,8 +72,10 @@ class TestPipelineSat:
         ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
         llm = _make_mock_llm(ctx, {"A": True, "B": False, "C": True, "D": False})
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
-        for key in ["sat_result", "verified", "parse_error", "decoded",
-                    "raw_response", "verify_response", "prompt_ctx"]:
+        for key in [
+            "sat_result", "verified", "parse_error",
+            "decoded", "raw_response", "verify_response", "prompt_ctx",
+        ]:
             assert key in result, f"Missing key: {key}"
 
 
@@ -176,21 +178,22 @@ class TestPipelineDecoyCount:
 
 class TestFileExport:
     def test_dimacs_via_generate_dimacs(self):
-        """DIMACS is accessible via generate_dimacs(result['prompt_ctx']) — not via run_pipeline param."""
+        """DIMACS accessible via generate_dimacs(prompt_ctx), not run_pipeline param."""
         ctx = generate_sat_prompt(EXPR_MEDIUM, list(REAL_VARS.keys()))
         dimacs, _ = generate_dimacs(ctx)
         assert dimacs.startswith("c DIMACS")
         assert "p cnf" in dimacs
 
     def test_secret_state_in_prompt_ctx(self):
-        """Secret state lives in result['prompt_ctx'], never written to disk by default."""
+        """Secret state lives in result['prompt_ctx'], never written to disk."""
         ctx = generate_sat_prompt(EXPR_MEDIUM, list(REAL_VARS.keys()))
         assert "token_map" in ctx
         assert "decode_map" in ctx
 
     def test_run_pipeline_has_no_export_params(self):
-        """F4 regression: run_pipeline must not accept export_secret_path or export_dimacs_path."""
+        """F4 regression: run_pipeline must not accept export_secret_path."""
         import inspect
+
         sig = inspect.signature(run_pipeline)
         assert "export_secret_path" not in sig.parameters
         assert "export_dimacs_path" not in sig.parameters

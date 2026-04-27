@@ -2,9 +2,10 @@
 tests/test_core.py
 Unit tests for sat_private/core.py — no LLM calls needed.
 """
-import re, pytest
-from sat_private import encode_variables, generate_sat_prompt, generate_dimacs, decode_assignment
-from tests.conftest import EXPR_MEDIUM, VAR_NAMES, EXPR_SIMPLE, EXPR_UNSAT
+import re
+
+from sat_private import decode_assignment, encode_variables, generate_dimacs, generate_sat_prompt
+from tests.conftest import EXPR_MEDIUM, EXPR_SIMPLE, EXPR_UNSAT, VAR_NAMES
 
 
 class TestEncodeVariables:
@@ -106,7 +107,7 @@ class TestDecodeAssignment:
     def test_full_roundtrip(self, medium_ctx):
         expected = {"A": False, "B": True, "C": False, "D": True}
         response = self._make_sat_response(medium_ctx, expected)
-        decoded  = decode_assignment(response, medium_ctx["decode_map"])
+        decoded = decode_assignment(response, medium_ctx["decode_map"])
         assert decoded == expected
 
     def test_unsat_returns_empty(self):
@@ -114,7 +115,9 @@ class TestDecodeAssignment:
 
     def test_partial_assignment(self, simple_ctx):
         tm = simple_ctx["token_map"]
-        partial_response = f"RESULT: SAT\nASSIGNMENT:\n{tm['A']}: TRUE\n{tm['B']}: FALSE"
+        partial_response = (
+            f"RESULT: SAT\nASSIGNMENT:\n{tm['A']}: TRUE\n{tm['B']}: FALSE"
+        )
         decoded = decode_assignment(partial_response, simple_ctx["decode_map"])
         assert decoded["A"] is True
         assert decoded["B"] is False

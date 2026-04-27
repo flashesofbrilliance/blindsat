@@ -5,16 +5,18 @@ Pure functions: encode, prompt generation, DIMACS export, decode.
 No I/O, no LLM calls — fully testable in isolation.
 """
 from __future__ import annotations
+
 import re
 import secrets
 from typing import Any
-from sympy.logic.boolalg import to_cnf, And, Or, Not, BooleanFalse, BooleanTrue
+
 from sympy import symbols as sym_symbols
+from sympy.logic.boolalg import And, BooleanFalse, BooleanTrue, Not, Or, to_cnf
 
 
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 # SECTION 1 — Variable encoding
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 
 def encode_variables(var_names: list[str]) -> tuple[dict[str, str], dict[str, str]]:
     """
@@ -46,14 +48,13 @@ def encode_variables(var_names: list[str]) -> tuple[dict[str, str], dict[str, st
     return token_map, decode_map
 
 
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — CNF conversion helpers
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 
 # Allowlist: only permit these characters in formula strings.
 # Prevents injection via crafted formula input (F3 mitigation).
-_FORMULA_ALLOWLIST = re.compile(r'^[A-Za-z0-9 |&~()>
-	-]+$')
+_FORMULA_ALLOWLIST = re.compile(r"^[A-Za-z0-9 |&~()>\-]+$")
 
 
 def _validate_formula(expr_str: str) -> None:
@@ -61,8 +62,7 @@ def _validate_formula(expr_str: str) -> None:
     if not _FORMULA_ALLOWLIST.match(expr_str):
         raise ValueError(
             f"Formula contains disallowed characters. "
-            f"Only A-Z, a-z, 0-9, spaces, and |&~()>
-	- are permitted. "
+            f"Only A-Z, a-z, 0-9, spaces, and |&~()>- are permitted. "
             f"Got: {expr_str!r}"
         )
 
@@ -75,7 +75,7 @@ def _parse_expr(expr_str: str, var_names: list[str]):
     safe = expr_str
     for name in sorted(var_names, key=len, reverse=True):
         safe = re.sub(rf"\b{re.escape(name)}\b", f"sym_map['{name}']", safe)
-    expr = eval(safe, {"sym_map": sym_map, "__builtins__": {{}}})  # nosec B307
+    expr = eval(safe, {"sym_map": sym_map, "__builtins__": {}})  # nosec B307
     return to_cnf(expr, simplify=True), sym_map
 
 
@@ -97,11 +97,11 @@ def _clauses_from_cnf(cnf_expr) -> list[list[str]]:
     return clauses
 
 
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — Prompt generation
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 
-_SOLVER_SYSTEM = """
+_SOLVER_SYSTEM = """\
 You are a pure structural SAT solver. You receive a SAT problem encoded with
 opaque hex tokens — the tokens have no semantic meaning. Your only job is to
 find a satisfying assignment or prove UNSAT.
@@ -122,7 +122,7 @@ RESULT: UNSAT
 
 Do not explain. Do not add commentary. Tokens are case-sensitive."""
 
-_VERIFIER_SYSTEM = """
+_VERIFIER_SYSTEM = """\
 You are a SAT assignment verifier. Given a set of clauses and an assignment,
 check every clause. Return EXACTLY one of:
 
@@ -150,7 +150,6 @@ def generate_sat_prompt(
     expr_str    : Boolean expression using var_names (e.g. "(A | B) & (~A | C)")
     var_names   : List of variable names appearing in expr_str
     decoy_count : Number of extra decoy tokens to inject (default 0).
-                  Decoys add noise that makes problem-size inference harder.
 
     Returns
     -------
@@ -220,11 +219,12 @@ def generate_verify_prompt(
 
     assign_lines = "\n".join(
         f"{token_map[sym]}: {'TRUE' if val else 'FALSE'}"
-        for sym, val in {s: assignment.get(token_map[s], False)
-                         for s in token_map}.items()
+        for sym, val in {
+            s: assignment.get(token_map[s], False) for s in token_map
+        }.items()
     )
     clause_lines = "\n".join(
-        f"{i+1}. (" + " | ".join(
+        f"{i + 1}. (" + " | ".join(
             f"{'~' if lit.startswith('-') else ''}{token_map[lit.lstrip('-')]}"
             for lit in clause
         ) + ")"
@@ -235,9 +235,9 @@ def generate_verify_prompt(
     return {"system": _VERIFIER_SYSTEM, "user": user_msg}
 
 
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 # SECTION 4 — DIMACS export
-# ──────────────────────────────────────────────────────────────────[...] 
+# ──────────────────────────────────────────────────────────────────────────────
 
 def generate_dimacs(
     prompt_ctx: dict[str, Any],
@@ -246,7 +246,7 @@ def generate_dimacs(
     Export the formula as standard DIMACS CNF (compatible with MiniSAT/Glucose).
 
     The integer->symbol mapping is returned separately as caller secret state —
-it must NOT be written into the .cnf file.
+    it must NOT be written into the .cnf file.
 
     Parameters
     ----------
@@ -256,14 +256,9 @@ it must NOT be written into the .cnf file.
     -------
     dimacs_str : str  — DIMACS CNF text; safe to write to formula.cnf
     caller_map : dict — {int_str: symbol}  — CALLER SECRET, never in .cnf
-
-    Security note
-    -------------
-    Write the returned dimacs_str to a temp file only. Delete immediately after
-    use. Never commit formula.cnf — it is covered by .gitignore.
     """
     var_names = list(prompt_ctx["token_map"].keys())
-    int_map   = {name: i + 1 for i, name in enumerate(var_names)}
+    int_map = {name: i + 1 for i, name in enumerate(var_names)}
     caller_map = {str(v): k for k, v in int_map.items()}
 
     clauses = prompt_ctx["clauses"]
@@ -283,9 +278,9 @@ it must NOT be written into the .cnf file.
     return "\n".join(lines), caller_map
 
 
-# ──────────────────────────────────────────────────────────────────[...]
+# ──────────────────────────────────────────────────────────────────────────────
 # SECTION 5 — Decode
-# ──────────────────────────────────────────────────────────────────[...] 
+# ──────────────────────────────────────────────────────────────────────────────
 
 def decode_assignment(
     llm_response: str,

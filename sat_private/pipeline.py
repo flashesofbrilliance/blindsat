@@ -5,10 +5,14 @@ High-level orchestrator: calls core functions in order, handles LLM wiring,
 verification gating, and structured result output.
 """
 from __future__ import annotations
-from typing import Callable, Any
+
+from collections.abc import Callable
+from typing import Any
+
 from .core import (
-    generate_sat_prompt, generate_verify_prompt,
-    generate_dimacs, decode_assignment,
+    decode_assignment,
+    generate_sat_prompt,
+    generate_verify_prompt,
 )
 
 # Canonical llm_call_fn signature: (system: str, user: str) -> str
@@ -45,15 +49,8 @@ def run_pipeline(
         verify_response : str   — raw LLM text (verify call)
         prompt_ctx      : dict  — includes token_map / decode_map (CALLER SECRET)
     }
-
-    Security notes
-    --------------
-    - prompt_ctx contains the decode map. Never log or serialise it.
-    - export_dimacs_path is intentionally removed. Write DIMACS only if you
-      understand the implications. Use result['prompt_ctx'] and generate_dimacs()
-      directly if needed, and delete the file immediately after use.
     """
-    var_names  = list(real_var_meanings.keys())
+    var_names = list(real_var_meanings.keys())
     prompt_ctx = generate_sat_prompt(expr_str, var_names, decoy_count=decoy_count)
 
     if llm_call_fn is None:
@@ -61,13 +58,13 @@ def run_pipeline(
         print("  System:", prompt_ctx["system"][:80].replace("\n", " "), "...")
         print("  User  :", prompt_ctx["user"][:120].replace("\n", " "), "...")
         return {
-            "sat_result"     : None,
-            "verified"       : None,
-            "parse_error"    : False,
-            "decoded"        : {},
-            "raw_response"   : "",
+            "sat_result": None,
+            "verified": None,
+            "parse_error": False,
+            "decoded": {},
+            "raw_response": "",
             "verify_response": "",
-            "prompt_ctx"     : prompt_ctx,
+            "prompt_ctx": prompt_ctx,
         }
 
     raw_response = llm_call_fn(prompt_ctx["system"], prompt_ctx["user"])
@@ -76,24 +73,23 @@ def run_pipeline(
     upper = raw_response.upper()
     if "RESULT: UNSAT" in upper:
         return {
-            "sat_result"     : "UNSAT",
-            "verified"       : False,
-            "parse_error"    : False,
-            "decoded"        : {},
-            "raw_response"   : raw_response,
+            "sat_result": "UNSAT",
+            "verified": False,
+            "parse_error": False,
+            "decoded": {},
+            "raw_response": raw_response,
             "verify_response": "",
-            "prompt_ctx"     : prompt_ctx,
+            "prompt_ctx": prompt_ctx,
         }
     if "RESULT: SAT" not in upper:
-        # LLM returned something unparseable — surface explicitly, never silently SAT
         return {
-            "sat_result"     : None,
-            "verified"       : None,
-            "parse_error"    : True,
-            "decoded"        : {},
-            "raw_response"   : raw_response,
+            "sat_result": None,
+            "verified": None,
+            "parse_error": True,
+            "decoded": {},
+            "raw_response": raw_response,
             "verify_response": "",
-            "prompt_ctx"     : prompt_ctx,
+            "prompt_ctx": prompt_ctx,
         }
 
     sat_result = "SAT"
@@ -107,14 +103,14 @@ def run_pipeline(
 
     # ── Verification call ────────────────────────────────────────────────────
     verify_response = ""
-    verified        = None
+    verified = None
     if token_assignment:
-        vp              = generate_verify_prompt(prompt_ctx, token_assignment)
+        vp = generate_verify_prompt(prompt_ctx, token_assignment)
         verify_response = llm_call_fn(vp["system"], vp["user"])
-        verified        = "PASS" in verify_response.upper()
+        verified = "PASS" in verify_response.upper()
 
     # ── Decode via single canonical path (core.decode_assignment) ────────────
-    sym_decoded  = decode_assignment(raw_response, prompt_ctx["decode_map"])
+    sym_decoded = decode_assignment(raw_response, prompt_ctx["decode_map"])
     real_decoded = {
         real_var_meanings[sym]: val
         for sym, val in sym_decoded.items()
@@ -122,11 +118,11 @@ def run_pipeline(
     }
 
     return {
-        "sat_result"     : sat_result,
-        "verified"       : verified,
-        "parse_error"    : False,
-        "decoded"        : real_decoded,
-        "raw_response"   : raw_response,
+        "sat_result": sat_result,
+        "verified": verified,
+        "parse_error": False,
+        "decoded": real_decoded,
+        "raw_response": raw_response,
         "verify_response": verify_response,
-        "prompt_ctx"     : prompt_ctx,
+        "prompt_ctx": prompt_ctx,
     }

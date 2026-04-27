@@ -3,12 +3,6 @@ UC-2 · Feature Flag Dependency Validation
 ------------------------------------------
 Checks that a proposed combination of feature flags is internally
 consistent before a release, without leaking flag names to the LLM.
-
-The formula encodes:
-  - New checkout requires legacy checkout to be disabled
-  - New checkout requires Payment v2
-  - Analytics v3 requires the A/B cohort to be active
-  - Both new checkout and analytics v3 are being enabled in this release
 """
 
 from sat_private import run_pipeline
@@ -21,15 +15,15 @@ REAL_VARS = {
     'E': 'ab_test_cohort_active',
 }
 
-# (~A | B): if new checkout, then legacy must be off
-# (~A | C): if new checkout, then payment_v2 must be on
-# (~D | E): if analytics_v3, then ab_test must be active
-# A & D:   both flags are being turned on in this release
 FORMULA = '(~A | B) & (~A | C) & (~D | E) & A & D'
 
 
-def mock_llm(prompt: str) -> str:
-    return "SATISFIABLE\nASSIGNMENT:\n# Replace with real LLM output"
+def mock_llm(system: str, user: str) -> str:
+    vars_block = [l for l in user.splitlines() if len(l) == 8 and l.isupper()]
+    lines = ["RESULT: SAT", "ASSIGNMENT:"]
+    for i, tok in enumerate(vars_block):
+        lines.append(f"{tok}: {'TRUE' if i % 2 == 0 else 'FALSE'}")
+    return "\n".join(lines)
 
 
 if __name__ == '__main__':
@@ -39,7 +33,7 @@ if __name__ == '__main__':
         llm_call_fn=mock_llm,
     )
     print('\n--- Pipeline Result ---')
-    print(f"SAT:      {result['satisfiable']}")
-    print(f"Verified: {result.get('verified')}")
-    print(f"Decoded:  {result.get('decoded')}")
-    print(f"Meanings: {result.get('real_meanings')}")
+    print(f"SAT:         {result['sat_result']}")
+    print(f"Verified:    {result.get('verified')}")
+    print(f"Parse error: {result.get('parse_error')}")
+    print(f"Decoded:     {result.get('decoded')}")

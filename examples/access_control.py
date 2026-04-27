@@ -21,16 +21,20 @@ REAL_VARS = {
     'D': 'request_from_vpn',
 }
 
-# Propositional formula over symbolic variable names
 FORMULA = '(A | B) & (C | D) & (~A | ~D) & (B | C)'
 
 
-def mock_llm(prompt: str) -> str:
-    """Placeholder — replace with your OpenAI/Anthropic call."""
-    # A valid satisfying assignment: A=False, B=True, C=True, D=False
-    # Token values will differ each run; this is illustrative only.
-    lines = [line for line in prompt.splitlines() if 'VARS:' in line or ':' in line]
-    return "SATISFIABLE\nASSIGNMENT:\n# Replace with real LLM output"
+def mock_llm(system: str, user: str) -> str:
+    """
+    Placeholder — replace with your OpenAI/Anthropic call.
+    Signature: (system: str, user: str) -> str
+    """
+    # Extract a token from the VARS block to build a plausible mock response
+    vars_block = [l for l in user.splitlines() if len(l) == 8 and l.isupper()]
+    lines = ["RESULT: SAT", "ASSIGNMENT:"]
+    for i, tok in enumerate(vars_block):
+        lines.append(f"{tok}: {'TRUE' if i % 2 == 0 else 'FALSE'}")
+    return "\n".join(lines)
 
 
 if __name__ == '__main__':
@@ -40,7 +44,7 @@ if __name__ == '__main__':
         llm_call_fn=mock_llm,
     )
     print('\n--- Pipeline Result ---')
-    print(f"SAT:      {result['satisfiable']}")
-    print(f"Verified: {result.get('verified')}")
-    print(f"Decoded:  {result.get('decoded')}")
-    print(f"Meanings: {result.get('real_meanings')}")
+    print(f"SAT:         {result['sat_result']}")
+    print(f"Verified:    {result.get('verified')}")
+    print(f"Parse error: {result.get('parse_error')}")
+    print(f"Decoded:     {result.get('decoded')}")

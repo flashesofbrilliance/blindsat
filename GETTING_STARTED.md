@@ -23,13 +23,11 @@ cd sat-private
 pip install -e .[dev]
 ```
 
-This installs `sat_private` as an editable package plus dev dependencies (`pytest`, `ruff`, `pytest-cov`).
-
 ---
 
 ## Step 2 — Run an Example (Mock Mode)
 
-No API key needed. The example uses a placeholder `mock_llm` function.
+No API key needed.
 
 ```bash
 python examples/access_control.py
@@ -39,32 +37,28 @@ Expected output:
 
 ```
 --- Pipeline Result ---
-SAT:      None          # None because mock_llm returns a placeholder
-Verified: None
-Decoded:  {}
-Meanings: {}
+SAT:         SAT
+Verified:    True
+Parse error: False
+Decoded:     {'user_is_admin': True, 'has_mfa': False, ...}
 ```
-
-This confirms the pipeline wiring is correct. To get a real SAT result, wire in a live LLM (Step 4).
 
 ---
 
 ## Step 3 — Run the Test Suite
 
 ```bash
-make test          # all 46 tests
-make coverage      # same, with coverage report (target: ≥90%)
+make test          # all tests
+make coverage      # pytest + coverage report (target: ≥90%)
 make lint          # ruff style check
 ```
-
-All tests use mock LLM responses — no API key required.
 
 ---
 
 ## Step 4 — Wire in a Real LLM
 
-The pipeline accepts any callable with signature `(prompt: str) -> str`.
-Pass it as `llm_call_fn`.
+`llm_call_fn` signature: `(system: str, user: str) -> str`.
+Both arguments are positional strings — system prompt first, user message second.
 
 ### OpenAI
 
@@ -74,30 +68,25 @@ from sat_private import run_pipeline
 
 client = OpenAI()  # reads OPENAI_API_KEY from environment
 
-def openai_call(prompt: str) -> str:
+def openai_call(system: str, user: str) -> str:
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are a precise SAT solver. Follow instructions exactly."},
-            {"role": "user", "content": prompt},
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
         ],
         temperature=0,
     )
     return response.choices[0].message.content
 
-REAL_VARS = {
-    'A': 'user_is_admin',
-    'B': 'has_mfa',
-    'C': 'is_weekday',
-    'D': 'request_from_vpn',
-}
-
 result = run_pipeline(
     formula_str='(A | B) & (C | D) & (~A | ~D) & (B | C)',
-    real_var_meanings=REAL_VARS,
+    real_var_meanings={
+        'A': 'user_is_admin', 'B': 'has_mfa',
+        'C': 'is_weekday',    'D': 'request_from_vpn',
+    },
     llm_call_fn=openai_call,
 )
-
 print(result)
 ```
 
@@ -109,21 +98,23 @@ from sat_private import run_pipeline
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from environment
 
-def anthropic_call(prompt: str) -> str:
+def anthropic_call(system: str, user: str) -> str:
     message = client.messages.create(
         model="claude-opus-4-5",
         max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
+        system=system,
+        messages=[{"role": "user", "content": user}],
     )
     return message.content[0].text
 
 result = run_pipeline(
     formula_str='(A | B) & (C | D) & (~A | ~D) & (B | C)',
-    real_var_meanings={'A': 'user_is_admin', 'B': 'has_mfa',
-                       'C': 'is_weekday', 'D': 'request_from_vpn'},
+    real_var_meanings={
+        'A': 'user_is_admin', 'B': 'has_mfa',
+        'C': 'is_weekday',    'D': 'request_from_vpn',
+    },
     llm_call_fn=anthropic_call,
 )
-
 print(result)
 ```
 
@@ -131,78 +122,56 @@ print(result)
 
 ## Step 5 — Understand the Result Object
 
-`run_pipeline` returns a dict:
-
 ```python
 {
-    'satisfiable': True,           # or False if UNSAT
-    'verified': True,              # verifier confirmed the assignment
-    'raw_assignment': {            # LLM output before decode
-        'A1B2C3D4': True,
-        'E5F6G7H8': False,
-        ...
-    },
-    'decoded': {                   # symbol names → bool
-        'A': True,
-        'B': False,
-        ...
-    },
-    'real_meanings': {             # real variable names → bool  ← what you actually want
-        'user_is_admin': True,
-        'has_mfa': False,
-        ...
-    },
-    'dimacs': 'p cnf 4 4\n1 2 0\n...',  # DIMACS string for MiniSAT cross-check
+    'sat_result'      : 'SAT',      # 'SAT' | 'UNSAT' | None (dry run / parse error)
+    'verified'        : True,       # verifier confirmed the assignment
+    'decoded'         : {'user_is_admin': True, 'has_mfa': False, ...},
+    'parse_error'     : False,      # True if LLM returned unparseable output
+    'raw_response'    : '...',      # raw LLM solver output
+    'verify_response' : '...',      # raw LLM verifier output
+    'prompt_ctx'      : {...},      # contains token_map / decode_map — CALLER SECRET
 }
 ```
 
-The only field that contains real meanings is `real_meanings` — and it is computed **locally** by the caller. It never touches the LLM.
+> **If `parse_error` is True:** the LLM returned output that contained neither
+> `SAT` nor `UNSAT`. Retry the call; consider reducing temperature or increasing
+> `max_tokens`. See `docs/FAILURE_MODES.md` for full diagnostics.
 
 ---
 
-## Step 6 — Cross-Check with MiniSAT *(Optional)*
-
-If you have MiniSAT installed:
+## Step 6 — DIMACS Cross-Check *(Optional)*
 
 ```python
-result = run_pipeline(...)
-
-with open('formula.cnf', 'w') as f:
-    f.write(result['dimacs'])
+result = run_pipeline(..., export_dimacs_path='formula.cnf')
 ```
 
 ```bash
 minisat formula.cnf
-# SAT / UNSAT  ← should agree with result['satisfiable']
-rm formula.cnf   # formula.cnf is .gitignored; delete after use
+rm formula.cnf   # covered by .gitignore; delete after use
 ```
 
 ---
 
 ## Step 7 — Write Your Own Formula
 
-Formulas use standard propositional logic syntax via SymPy:
-
 | Operator | Syntax | Example |
 |---|---|---|
 | AND | `&` | `A & B` |
 | OR | `\|` | `A \| B` |
 | NOT | `~` | `~A` |
-| Implies | `>>` | `A >> B` (equivalent to `~A \| B`) |
+| Implies | `>>` | `A >> B` |
 | Grouping | `()` | `(A \| B) & C` |
 
 Variable names must be single uppercase letters (A–Z) for this POC.
-See `docs/NEXT_STEPS.md` N-16 for the roadmap to multi-char and first-order variables.
+See `docs/NEXT_STEPS.md` N-16 for multi-char variable support.
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in your keys:
-
 ```bash
 cp .env.example .env
-# edit .env with your keys
 ```
 
 ```env
@@ -211,8 +180,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 SAT_PRIVATE_DEBUG=0    # set to 1 to log full prompts (never in production)
 ```
 
-> **Never commit `.env`.** It is covered by `.gitignore`.
-
 ---
 
 ## Troubleshooting
@@ -220,16 +187,17 @@ SAT_PRIVATE_DEBUG=0    # set to 1 to log full prompts (never in production)
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `ModuleNotFoundError: sat_private` | Not installed | Run `pip install -e .` |
-| `verified: False` | LLM hallucinated an assignment | Retry; consider lower temperature |
-| `satisfiable: False` on a valid formula | LLM returned UNSAT incorrectly | Cross-check with MiniSAT |
-| `KeyError` in decode | LLM returned an unknown token | Enable debug mode; check for prompt truncation |
-| `ruff` lint errors in CI | Style violations in source | Run `make lint` locally and fix before pushing |
+| `TypeError: mock_llm() takes 1 positional argument` | Old single-arg signature | Update to `def fn(system, user)` |
+| `parse_error: True` | LLM returned prose instead of structured output | Retry at temperature=0; see `docs/FAILURE_MODES.md` |
+| `verified: False` | LLM hallucinated an assignment | Retry; cross-check with MiniSAT |
+| `decoded: {}` on a SAT result | LLM returned SAT but no token lines | Enable debug mode; check for response truncation |
+| `ruff` lint errors in CI | Style violations | Run `make lint` locally before pushing |
 
 ---
 
 ## Next Steps
 
-- Read [`docs/USE_CASES.md`](docs/USE_CASES.md) for three concrete applications.
-- Read [`docs/DEFINITION_OF_DONE.md`](docs/DEFINITION_OF_DONE.md) for contribution criteria.
-- Check [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md) for the full backlog.
-- Open the annotated notebook: `jupyter notebook notebooks/`
+- [`docs/FAILURE_MODES.md`](docs/FAILURE_MODES.md) — failure taxonomy and mitigations
+- [`docs/USE_CASES.md`](docs/USE_CASES.md) — three concrete applications
+- [`docs/DEFINITION_OF_DONE.md`](docs/DEFINITION_OF_DONE.md) — contribution criteria
+- [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md) — full backlog

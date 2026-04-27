@@ -1,15 +1,8 @@
 """
 UC-3 · Regulatory Compliance Rule Satisfiability
 --------------------------------------------------
-Checks whether a set of overlapping GDPR / SOC2 / HIPAA-style clauses
-are mutually satisfiable, without leaking legal language to the LLM.
-
-The formula encodes:
-  - Cross-border transfer requires consent OR no transfer
-  - Data minimisation AND retention limit must both hold
-  - Cross-border transfer requires a signed DPA
-  - Breach notification capability is mandatory
-  - Either consent or data minimisation must hold
+Checks whether overlapping GDPR / SOC2 / HIPAA-style clauses are mutually
+satisfiable, without leaking legal language to the LLM.
 """
 
 from sat_private import run_pipeline
@@ -26,8 +19,12 @@ REAL_VARS = {
 FORMULA = '(A | ~D) & (B & C) & (~D | E) & F & (A | B)'
 
 
-def mock_llm(prompt: str) -> str:
-    return "SATISFIABLE\nASSIGNMENT:\n# Replace with real LLM output"
+def mock_llm(system: str, user: str) -> str:
+    vars_block = [l for l in user.splitlines() if len(l) == 8 and l.isupper()]
+    lines = ["RESULT: SAT", "ASSIGNMENT:"]
+    for i, tok in enumerate(vars_block):
+        lines.append(f"{tok}: {'TRUE' if i % 2 == 0 else 'FALSE'}")
+    return "\n".join(lines)
 
 
 if __name__ == '__main__':
@@ -37,7 +34,7 @@ if __name__ == '__main__':
         llm_call_fn=mock_llm,
     )
     print('\n--- Pipeline Result ---')
-    print(f"SAT:      {result['satisfiable']}")
-    print(f"Verified: {result.get('verified')}")
-    print(f"Decoded:  {result.get('decoded')}")
-    print(f"Meanings: {result.get('real_meanings')}")
+    print(f"SAT:         {result['sat_result']}")
+    print(f"Verified:    {result.get('verified')}")
+    print(f"Parse error: {result.get('parse_error')}")
+    print(f"Decoded:     {result.get('decoded')}")

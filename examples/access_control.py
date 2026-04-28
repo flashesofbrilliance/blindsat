@@ -1,37 +1,18 @@
-"""
-UC-1 · Zero-Knowledge Access Control Policy Evaluation
--------------------------------------------------------
-Demonstrates how sat_private evaluates access policy satisfiability
-without exposing attribute names (user_is_admin, has_mfa, etc.) to the LLM.
-
-The formula encodes:
-  - A user must be admin OR have MFA
-  - The request must be on a weekday OR from the VPN
-  - An admin cannot also be from the VPN (separation of concerns)
-  - MFA or weekday must hold
-"""
+"""UC-1 Access Control Policy Evaluation."""
 from sat_private import run_pipeline
 
-REAL_VARS = {
-    "A": "user_is_admin",
-    "B": "has_mfa",
-    "C": "is_weekday",
-    "D": "request_from_vpn",
-}
-
+REAL_VARS = {"A": "user_is_admin", "B": "has_mfa", "C": "is_weekday", "D": "from_vpn"}
 FORMULA = "(A | B) & (C | D) & (~A | ~D) & (B | C)"
 
 
 def mock_llm(system: str, user: str) -> str:
-    """
-    Placeholder — replace with your OpenAI/Anthropic call.
-    Signature: (system: str, user: str) -> str
-    """
-    vars_block = [line for line in user.splitlines() if len(line) == 8 and line.isupper()]
+    tokens = [ln for ln in user.splitlines() if len(ln) == 8 and ln.isupper()]
     lines = ["RESULT: SAT", "ASSIGNMENT:"]
-    for i, tok in enumerate(vars_block):
-        lines.append(f"{tok}: {'TRUE' if i % 2 == 0 else 'FALSE'}")
-    return "\n".join(lines)
+    for i, t in enumerate(tokens):
+        val = "TRUE" if i % 2 == 0 else "FALSE"
+        lines.append(t + ": " + val)
+    sep = chr(10)
+    return sep.join(lines)
 
 
 if __name__ == "__main__":
@@ -40,8 +21,4 @@ if __name__ == "__main__":
         real_var_meanings=REAL_VARS,
         llm_call_fn=mock_llm,
     )
-    print("\n--- Pipeline Result ---")
-    print(f"SAT:         {result['sat_result']}")
-    print(f"Verified:    {result.get('verified')}")
-    print(f"Parse error: {result.get('parse_error')}")
-    print(f"Decoded:     {result.get('decoded')}")
+    print(result)

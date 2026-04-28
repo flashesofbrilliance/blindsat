@@ -52,7 +52,7 @@ def run_pipeline(
     var_names = list(real_var_meanings.keys())
     prompt_ctx = generate_sat_prompt(expr_str, var_names, decoy_count=decoy_count)
 
-    if llm_call_fn is None:  # pragma: no cover
+    if llm_call_fn is None:
         print("[DRY RUN] Skipping LLM calls. Prompt preview:")
         print("  System:", prompt_ctx["system"][:80].replace("\n", " "), "...")
         print("  User  :", prompt_ctx["user"][:120].replace("\n", " "), "...")

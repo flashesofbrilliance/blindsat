@@ -1,6 +1,6 @@
 """
 tests/test_core.py
-Unit tests for sat_private/core.py — no LLM calls needed.
+Unit tests for sat_private/core.py -- no LLM calls needed.
 """
 import re
 
@@ -39,15 +39,16 @@ class TestGenerateSatPrompt:
             assert key in medium_ctx
 
     def test_no_symbol_leak(self):
-        # Single-char symbols (A, B, C, D) are substrings of 8-char hex tokens,
-        # so we check for word-boundary isolation rather than bare substring.
+        # Symbols must not appear as standalone identifiers in the user message.
+        # Single-char symbols (A-D) legitimately appear inside hex tokens and
+        # header words like "sat", so we use a word-character boundary that
+        # excludes any alphanumeric/underscore neighbour.
         ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
         user = ctx["user"]
         for sym in VAR_NAMES:
-            # A real leak would be the symbol appearing as a standalone word
-            # (e.g. " A " or "A:" or "(A|") — not embedded inside a hex token.
-            assert not re.search(rf"(?<![0-9A-F]){re.escape(sym)}(?![0-9A-F])", user), (
-                f"Symbol '{sym}' leaked as standalone word into user message"
+            pattern = rf"(?<![A-Za-z0-9_]){re.escape(sym)}(?![A-Za-z0-9_])"
+            assert not re.search(pattern, user), (
+                f"Symbol '{sym}' leaked as standalone identifier in user message"
             )
 
     def test_all_tokens_in_user(self):
@@ -65,8 +66,7 @@ class TestGenerateSatPrompt:
         assert isinstance(ctx["clauses"], list)
 
     def test_simple_formula_clause_count(self):
-        # (A | B) & (~A | B) simplifies to B under SymPy to_cnf(simplify=True).
-        # Assert at least 1 clause is produced rather than pinning the exact count.
+        # SymPy simplify=True reduces (A|B)&(~A|B) -> B: assert >= 1
         ctx = generate_sat_prompt("(A | B) & (~A | B)", ["A", "B"])
         assert len(ctx["clauses"]) >= 1
 
@@ -106,13 +106,13 @@ class TestGenerateDimacs:
 
 
 class TestDecodeAssignment:
-    def _make_sat_response(self, ctx, values: dict) -> str:
+    def _make_sat_response(self, ctx, values):
         tm = ctx["token_map"]
+        NL = chr(10)
         lines = ["RESULT: SAT", "ASSIGNMENT:"]
         for sym, val in values.items():
             lines.append(tm[sym] + ": " + ("TRUE" if val else "FALSE"))
-        sep = chr(10)
-        return sep.join(lines)
+        return NL.join(lines)
 
     def test_full_roundtrip(self, medium_ctx):
         expected = {"A": False, "B": True, "C": False, "D": True}
@@ -125,10 +125,9 @@ class TestDecodeAssignment:
 
     def test_partial_assignment(self, simple_ctx):
         tm = simple_ctx["token_map"]
-        sep = chr(10)
-        partial_response = sep.join([
-            "RESULT: SAT",
-            "ASSIGNMENT:",
+        NL = chr(10)
+        partial_response = NL.join([
+            "RESULT: SAT", "ASSIGNMENT:",
             tm["A"] + ": TRUE",
             tm["B"] + ": FALSE",
         ])
@@ -138,10 +137,9 @@ class TestDecodeAssignment:
 
     def test_case_insensitive_true_false(self, simple_ctx):
         tm = simple_ctx["token_map"]
-        sep = chr(10)
-        r = sep.join([
-            "RESULT: SAT",
-            "ASSIGNMENT:",
+        NL = chr(10)
+        r = NL.join([
+            "RESULT: SAT", "ASSIGNMENT:",
             tm["A"] + ": true",
             tm["B"] + ": false",
         ])

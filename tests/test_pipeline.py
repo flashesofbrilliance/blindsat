@@ -1,31 +1,41 @@
 """
 tests/test_pipeline.py
-Integration tests for sat_private/pipeline.py — uses mock LLM, no real API calls.
+Integration tests for sat_private/pipeline.py -- uses mock LLM, no real API calls.
+
+Key design: the mock LLM is built AFTER a dry-run of run_pipeline so it uses
+the exact same token_map that the pipeline will use internally.
 """
 from sat_private import generate_dimacs, generate_sat_prompt, run_pipeline
 from tests.conftest import EXPR_MEDIUM, REAL_VARS, VAR_NAMES
 
+NL = chr(10)
 
-def _make_sat_response(ctx, values: dict) -> str:
-    """Build a well-formed RESULT: SAT response for the given symbol->bool map."""
+
+def _build_mock_llm(real_vars, expr, sym_values, verify_pass=True):
+    """Build a mock LLM whose SAT response uses the pipeline's own token_map.
+
+    Strategy: dry-run the pipeline first to capture prompt_ctx, then build
+    the SAT response using those exact tokens, then run for real with a
+    mock that returns that pre-built response.
+    """
+    # Step 1: dry-run to get the token_map the pipeline will use
+    dry = run_pipeline(expr, real_vars, llm_call_fn=None)
+    ctx = dry["prompt_ctx"]
     tm = ctx["token_map"]
+
+    # Step 2: build SAT response using those exact tokens
     lines = ["RESULT: SAT", "ASSIGNMENT:"]
-    for sym, val in values.items():
-        lines.append(f"{tm[sym]}: {'TRUE' if val else 'FALSE'}")
-    return "\n".join(lines)
+    for sym, val in sym_values.items():
+        lines.append(tm[sym] + ": " + ("TRUE" if val else "FALSE"))
+    sat_resp = NL.join(lines)
 
-
-def _make_mock_llm(ctx, sym_values: dict, verify_pass: bool = True):
-    """Return a 2-arg mock LLM: answers SAT then VERIFICATION: PASS/FAIL."""
-    sat_response = _make_sat_response(ctx, sym_values)
-    verify_response = (
-        "VERIFICATION: PASS" if verify_pass
-        else "VERIFICATION: FAIL\nUNSATISFIED_CLAUSES: 1"
+    verify_resp = "VERIFICATION: PASS" if verify_pass else (
+        "VERIFICATION: FAIL" + NL + "UNSATISFIED_CLAUSES: 1"
     )
-    responses = [sat_response, verify_response]
+    responses = [sat_resp, verify_resp]
     idx = [0]
 
-    def mock(system: str, user: str) -> str:
+    def mock(system, user):
         r = responses[idx[0] % len(responses)]
         idx[0] += 1
         return r
@@ -35,39 +45,34 @@ def _make_mock_llm(ctx, sym_values: dict, verify_pass: bool = True):
 
 class TestPipelineSat:
     def test_sat_result_key(self):
-        ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
-        llm = _make_mock_llm(ctx, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert result["sat_result"] == "SAT"
 
     def test_verified_true_on_pass(self):
-        ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
-        llm = _make_mock_llm(
-            ctx, {"A": True, "B": False, "C": True, "D": False}, verify_pass=True
+        llm = _build_mock_llm(
+            REAL_VARS, EXPR_MEDIUM,
+            {"A": True, "B": False, "C": True, "D": False},
+            verify_pass=True,
         )
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert result["verified"] is True
 
     def test_decoded_contains_real_names(self):
-        ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
-        llm = _make_mock_llm(ctx, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert set(result["decoded"].keys()) <= set(REAL_VARS.values())
 
     def test_parse_error_false_on_clean_response(self):
-        ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
-        llm = _make_mock_llm(ctx, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert result["parse_error"] is False
 
     def test_result_keys_present(self):
-        ctx = generate_sat_prompt(EXPR_MEDIUM, VAR_NAMES)
-        llm = _make_mock_llm(ctx, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
-        for key in [
-            "sat_result", "verified", "parse_error",
-            "decoded", "raw_response", "verify_response", "prompt_ctx",
-        ]:
+        for key in ["sat_result", "verified", "parse_error", "decoded",
+                    "raw_response", "verify_response", "prompt_ctx"]:
             assert key in result, f"Missing key: {key}"
 
 

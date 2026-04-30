@@ -10,6 +10,8 @@ from tests.conftest import EXPR_MEDIUM, REAL_VARS, VAR_NAMES
 
 NL = chr(10)
 
+_MEDIUM_ASSIGN = {"A": True, "B": False, "C": True, "D": False}
+
 
 def _build_mock_llm(real_vars, expr, sym_values, verify_pass=True):
     """Build a mock LLM whose SAT response uses the pipeline's own token_map.
@@ -45,7 +47,7 @@ def _build_mock_llm(real_vars, expr, sym_values, verify_pass=True):
 
 class TestPipelineSat:
     def test_sat_result_key(self):
-        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, _MEDIUM_ASSIGN)
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert result["sat_result"] == "SAT"
 
@@ -59,17 +61,17 @@ class TestPipelineSat:
         assert result["verified"] is True
 
     def test_decoded_contains_real_names(self):
-        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, _MEDIUM_ASSIGN)
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert set(result["decoded"].keys()) <= set(REAL_VARS.values())
 
     def test_parse_error_false_on_clean_response(self):
-        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, _MEDIUM_ASSIGN)
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         assert result["parse_error"] is False
 
     def test_result_keys_present(self):
-        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, {"A": True, "B": False, "C": True, "D": False})
+        llm = _build_mock_llm(REAL_VARS, EXPR_MEDIUM, _MEDIUM_ASSIGN)
         result = run_pipeline(EXPR_MEDIUM, REAL_VARS, llm_call_fn=llm)
         for key in ["sat_result", "verified", "parse_error", "decoded",
                     "raw_response", "verify_response", "prompt_ctx"]:

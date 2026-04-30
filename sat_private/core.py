@@ -83,7 +83,7 @@ def _parse_expr(expr_str: str, var_names: list[str]):
     for name in sorted(var_names, key=len, reverse=True):
         safe = re.sub(rf"\b{re.escape(name)}\b", f"sym_map['{name}']", safe)
     expr = eval(safe, {"sym_map": sym_map, "__builtins__": {}})  # nosec B307
-    return to_cnf(expr, simplify=True), sym_map
+    return to_cnf(expr, simplify=False), sym_map
 
 
 def _clauses_from_cnf(cnf_expr) -> list[list[str]]:
@@ -167,6 +167,7 @@ def generate_sat_prompt(
         decode_map  - {hex_token: symbol}  — CALLER SECRET
         clauses     - raw clause list (list[list[str]] of symbols)
     """
+    var_names = list(dict.fromkeys(var_names))  # deduplicate, preserve order
     token_map, decode_map = encode_variables(var_names)
     cnf, _ = _parse_expr(expr_str, var_names)
     clauses = _clauses_from_cnf(cnf)

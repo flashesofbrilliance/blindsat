@@ -2,9 +2,11 @@
 tests/test_pipeline.py
 Integration tests for sat_private/pipeline.py -- uses mock LLM, no real API calls.
 
-Key design: the mock LLM is built AFTER a dry-run of run_pipeline so it uses
-the exact same token_map that the pipeline will use internally.
+Key design: the mock LLM parses tokens from the *actual* prompt it receives,
+so it stays in sync regardless of which random tokens the pipeline generates.
 """
+import re
+
 from sat_private import generate_dimacs, generate_sat_prompt, run_pipeline
 from tests.conftest import EXPR_MEDIUM, REAL_VARS, VAR_NAMES
 
@@ -14,31 +16,31 @@ _MEDIUM_ASSIGN = {"A": True, "B": False, "C": True, "D": False}
 
 
 def _build_mock_llm(real_vars, expr, sym_values, verify_pass=True):
-    """Build a mock LLM whose SAT response uses the pipeline's own token_map.
+    """Build a mock LLM that reads tokens from the prompt it receives.
 
-    Strategy: dry-run the pipeline first to capture prompt_ctx, then build
-    the SAT response using those exact tokens, then run for real with a
-    mock that returns that pre-built response.
+    Parses the VARS block of the real prompt so the SAT response always uses
+    the same tokens the pipeline generated — no dry-run token capture needed.
     """
-    # Step 1: dry-run to get the token_map the pipeline will use
-    dry = run_pipeline(expr, real_vars, llm_call_fn=None)
-    ctx = dry["prompt_ctx"]
-    tm = ctx["token_map"]
-
-    # Step 2: build SAT response using those exact tokens
-    lines = ["RESULT: SAT", "ASSIGNMENT:"]
-    for sym, val in sym_values.items():
-        lines.append(tm[sym] + ": " + ("TRUE" if val else "FALSE"))
-    sat_resp = NL.join(lines)
-
-    verify_resp = "VERIFICATION: PASS" if verify_pass else (
-        "VERIFICATION: FAIL" + NL + "UNSATISFIED_CLAUSES: 1"
-    )
-    responses = [sat_resp, verify_resp]
+    var_names_list = list(real_vars.keys())
     idx = [0]
 
     def mock(system, user):
-        r = responses[idx[0] % len(responses)]
+        if idx[0] == 0:
+            # Parse VARS section to get actual tokens in var order
+            m = re.search(r"VARS:\n(.*?)\n\n", user, re.DOTALL)
+            all_tokens = m.group(1).splitlines() if m else []
+            token_map = dict(zip(var_names_list, all_tokens[: len(var_names_list)]))
+            lines = ["RESULT: SAT", "ASSIGNMENT:"]
+            for sym, val in sym_values.items():
+                if sym in token_map:
+                    lines.append(token_map[sym] + ": " + ("TRUE" if val else "FALSE"))
+            r = NL.join(lines)
+        else:
+            r = (
+                "VERIFICATION: PASS"
+                if verify_pass
+                else "VERIFICATION: FAIL" + NL + "UNSATISFIED_CLAUSES: 1"
+            )
         idx[0] += 1
         return r
 

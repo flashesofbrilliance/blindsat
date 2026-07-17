@@ -1,4 +1,4 @@
-# sat_private
+# BlindSAT
 
 > A private SAT pipeline: binary-encoded CNF + LLM solver + secret caller state.
 

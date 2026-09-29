@@ -25,6 +25,8 @@ Your formula  →  encode  →  opaque CNF  →  LLM solves  →  verify  →  d
 
 ## Quick Start
 
+Requires Python 3.10+ (macOS ships 3.9; use `brew install python@3.11` or pyenv).
+
 ```bash
 git clone https://github.com/flashesofbrilliance/blindsat.git
 cd blindsat
@@ -63,7 +65,7 @@ make lint        # ruff style check
 
 | # | Use Case | Example |
 |---|---|---|
-| UC-1 | Zero-knowledge access control policy evaluation | `examples/access_control.py` |
+| UC-1 | Name-blind access control policy evaluation | `examples/access_control.py` |
 | UC-2 | Feature flag dependency validation | `examples/feature_flags.py` |
 | UC-3 | Regulatory compliance rule satisfiability | `examples/compliance_rules.py` |
 | UC-4 | Private configuration space exploration | — |
@@ -74,6 +76,8 @@ See [`docs/USE_CASES.md`](docs/USE_CASES.md) for full detail.
 ---
 
 ## Security Guarantees
+
+What this is: name-blind. The model sees clause structure and variable count, never names or meanings. What this is not: a cryptographic zero-knowledge proof (tracked as N-19 in `docs/NEXT_STEPS.md`).
 
 - Token map is ephemeral — regenerated every `run_pipeline` call.
 - Real variable names never appear in prompts, DIMACS output, or logs.

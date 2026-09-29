@@ -12,7 +12,7 @@
 
 ---
 
-## UC-1 · Zero-Knowledge Access Control Policy Evaluation
+## UC-1 · Name-Blind Access Control Policy Evaluation
 
 **Problem:** An organisation needs to check whether its access-control policy is satisfiable (i.e., at least one valid permission assignment exists) without sending attribute names like `user_is_admin` or `has_mfa` to an external LLM.
 

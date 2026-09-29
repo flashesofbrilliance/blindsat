@@ -1,12 +1,12 @@
 [project]
 name = "blindsat"
 version = "0.1.0"
-description = "Private SAT pipeline: binary-encoded CNF + LLM solver + zero-knowledge secret caller state. The LLM never sees your variable names."
+description = "Private SAT pipeline: binary-encoded CNF + LLM solver + secret caller-held decode map. The LLM never sees your variable names."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Zach Harris" }]
-keywords = ["sat", "solver", "cnf", "privacy", "llm", "zero-knowledge", "obfuscation"]
+keywords = ["sat", "solver", "cnf", "privacy", "llm", "name-blind", "obfuscation"]
 classifiers = [
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",

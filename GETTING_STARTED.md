@@ -18,8 +18,8 @@ This guide takes you from a fresh clone to a working pipeline in under 10 minute
 ## Step 1 — Clone and Install
 
 ```bash
-git clone https://github.com/flashesofbrilliance/sat-private.git
-cd sat-private
+git clone https://github.com/flashesofbrilliance/blindsat.git
+cd blindsat
 pip install -e .[dev]
 ```
 

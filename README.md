@@ -26,8 +26,8 @@ Your formula  →  encode  →  opaque CNF  →  LLM solves  →  verify  →  d
 ## Quick Start
 
 ```bash
-git clone https://github.com/flashesofbrilliance/sat-private.git
-cd sat-private
+git clone https://github.com/flashesofbrilliance/blindsat.git
+cd blindsat
 pip install -e .[dev]
 python examples/access_control.py   # mock mode, no API key needed
 ```

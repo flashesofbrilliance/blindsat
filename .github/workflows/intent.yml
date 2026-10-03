@@ -1,0 +1,12 @@
+name: intent
+# Checks this repo's AGENTS.md intent block. Rule + script: flashesofbrilliance/arcs-skills.
+on:
+  push: { branches: [main] }
+  pull_request: {}
+  schedule: [{ cron: "23 13 * * 1" }]   # weekly: a repo goes stale without any commit
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  intent:
+    uses: flashesofbrilliance/arcs-skills/.github/workflows/intent-lint.yml@main
